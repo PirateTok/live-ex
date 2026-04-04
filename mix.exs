@@ -37,7 +37,7 @@ defmodule PirateTok.Live.MixProject do
     [
       name: "piratetok_live",
       licenses: ["0BSD"],
-      links: %{"GitHub" => @source_url},
+      links: %{"GitHub" => @source_url, "Homepage" => "https://piratetok.boats"},
       maintainers: ["Zmole Cristian"]
     ]
   end
