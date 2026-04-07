@@ -50,4 +50,51 @@ defmodule PirateTok.Live.Http.UA do
       {:error, _} -> :error
     end
   end
+
+  @spec system_locale() :: {String.t(), String.t()}
+  def system_locale do
+    result =
+      with :error <- locale_from_env("LC_ALL"),
+           :error <- locale_from_env("LANG") do
+        {"en", "US"}
+      end
+
+    result
+  end
+
+  @spec system_language() :: String.t()
+  def system_language do
+    {lang, _} = system_locale()
+    lang
+  end
+
+  @spec system_region() :: String.t()
+  def system_region do
+    {_, region} = system_locale()
+    region
+  end
+
+  defp locale_from_env(var) do
+    case System.get_env(var) do
+      nil -> :error
+      val ->
+        val = String.trim(val)
+        if val in ["", "C", "POSIX"], do: :error, else: parse_posix_locale(val)
+    end
+  end
+
+  defp parse_posix_locale(s) do
+    # strip encoding: "en_US.UTF-8" -> "en_US"
+    base = s |> String.split(".") |> List.first()
+
+    case Regex.run(~r/^([a-zA-Z]{2,})[_-]([a-zA-Z]+)/, base) do
+      [_, lang, region] -> {String.downcase(lang), String.upcase(region)}
+      nil ->
+        if String.length(base) >= 2 do
+          {String.downcase(base), "US"}
+        else
+          :error
+        end
+    end
+  end
 end
