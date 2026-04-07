@@ -17,7 +17,7 @@ defmodule PirateTok.Live.Proto.GiftDetails do
   field :combo, 10, type: :bool
   field :gift_type, 11, type: :int32
   field :name, 16, type: :string
-  field :diamond_count, 18, type: :int32
+  field :diamond_count, 12, type: :int32
   field :image, 1, type: PirateTok.Live.Proto.Image
 end
 
