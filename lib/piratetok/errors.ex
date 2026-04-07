@@ -25,4 +25,16 @@ defmodule PirateTok.Live.Error do
 
   @spec http_error(String.t()) :: t()
   def http_error(msg), do: %__MODULE__{type: :http_error, message: "http: #{msg}"}
+
+  @spec profile_private(String.t()) :: t()
+  def profile_private(username), do: %__MODULE__{type: :profile_private, message: "private account: #{username}"}
+
+  @spec profile_not_found(String.t()) :: t()
+  def profile_not_found(username), do: %__MODULE__{type: :profile_not_found, message: "profile not found: #{username}"}
+
+  @spec profile_error(integer()) :: t()
+  def profile_error(code), do: %__MODULE__{type: :profile_error, message: "profile statusCode=#{code}"}
+
+  @spec profile_scrape(String.t()) :: t()
+  def profile_scrape(msg), do: %__MODULE__{type: :profile_scrape, message: "profile scrape: #{msg}"}
 end
