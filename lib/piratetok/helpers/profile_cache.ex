@@ -24,12 +24,13 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
   @ttwid_timeout 10_000
   @scrape_timeout 15_000
 
-  defstruct entries: %{}, ttwid: nil, ttl_ms: @default_ttl_ms, user_agent: nil, cookies: ""
+  defstruct entries: %{}, ttwid: nil, ttl_ms: @default_ttl_ms, proxy: nil, user_agent: nil, cookies: ""
 
   @spec start_link(keyword()) :: Agent.on_start()
   def start_link(opts \\ []) do
     state = %__MODULE__{
       ttl_ms: Keyword.get(opts, :ttl_ms, @default_ttl_ms),
+      proxy: Keyword.get(opts, :proxy),
       user_agent: Keyword.get(opts, :user_agent),
       cookies: Keyword.get(opts, :cookies, "")
     }
@@ -89,10 +90,11 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
         err
 
       {:ok, tw} ->
-        {ua, cookies} = Agent.get(cache, fn s -> {s.user_agent, s.cookies} end)
+        {ua, cookies, proxy} = Agent.get(cache, fn s -> {s.user_agent, s.cookies, s.proxy} end)
 
         opts = [timeout: @scrape_timeout, cookies: cookies]
         opts = if ua, do: Keyword.put(opts, :user_agent, ua), else: opts
+        opts = if proxy, do: Keyword.put(opts, :proxy, proxy), else: opts
 
         result = Sigi.scrape_profile(key, tw, opts)
 
@@ -116,12 +118,16 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
   end
 
   defp ensure_ttwid(cache) do
-    existing = Agent.get(cache, fn s -> s.ttwid end)
+    {existing, proxy, ua} = Agent.get(cache, fn s -> {s.ttwid, s.proxy, s.user_agent} end)
 
     if existing do
       {:ok, existing}
     else
-      case Ttwid.fetch(timeout: @ttwid_timeout) do
+      opts = [timeout: @ttwid_timeout]
+      opts = if ua, do: Keyword.put(opts, :user_agent, ua), else: opts
+      opts = if proxy, do: Keyword.put(opts, :proxy, proxy), else: opts
+
+      case Ttwid.fetch(opts) do
         {:ok, tw} ->
           Agent.update(cache, fn s -> %{s | ttwid: tw} end)
           {:ok, tw}

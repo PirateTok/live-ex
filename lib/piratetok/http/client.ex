@@ -11,6 +11,7 @@ defmodule PirateTok.Live.Http.Client do
     ua = Keyword.get(opts, :user_agent) || UA.random_ua()
     cookies = Keyword.get(opts, :cookies)
     no_redirect = Keyword.get(opts, :no_redirect, false)
+    proxy = Keyword.get(opts, :proxy)
 
     headers = [
       {~c"User-Agent", String.to_charlist(ua)},
@@ -34,6 +35,16 @@ defmodule PirateTok.Live.Http.Client do
       timeout: timeout,
       autoredirect: not no_redirect
     ]
+
+    http_opts =
+      if proxy && proxy != "" do
+        uri = URI.parse(proxy)
+        host = String.to_charlist(uri.host || "")
+        port = uri.port || 8080
+        Keyword.put(http_opts, :https_proxy, {{host, port}, []})
+      else
+        http_opts
+      end
 
     url_charlist = String.to_charlist(url)
 
