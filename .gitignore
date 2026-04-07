@@ -23,3 +23,4 @@ erl_crash.dump
 live_ex-*.tar
 
 release.sh
+.env
