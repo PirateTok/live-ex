@@ -107,6 +107,17 @@ mix run examples/stream_info.exs <username>      # fetch room metadata + stream 
 mix run examples/gift_tracker.exs <username>     # track gifts with diamond totals
 ```
 
+## Replay testing
+
+Deterministic cross-lib validation against binary WSS captures. Requires testdata from a separate repo:
+
+```bash
+git clone https://github.com/PirateTok/live-testdata ../live-testdata
+mix test
+```
+
+Tests skip gracefully if testdata is not found. You can also set `PIRATETOK_TESTDATA` to point to a custom location.
+
 ## Known gaps
 
 - Explicit `DEVICE_BLOCKED` handshake handling is not implemented yet.
