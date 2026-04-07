@@ -38,7 +38,7 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
     Agent.start_link(fn -> state end)
   end
 
-  @spec fetch(Agent.agent(), String.t()) :: {:ok, Sigi.sigi_profile()} | {:error, Error.t()}
+  @spec fetch(Agent.agent(), String.t()) :: {:ok, map()} | {:error, Error.t()}
   def fetch(cache, username) do
     key = normalize_key(username)
     now = System.monotonic_time(:millisecond)
@@ -58,7 +58,7 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
     end
   end
 
-  @spec cached(Agent.agent(), String.t()) :: Sigi.sigi_profile() | nil
+  @spec cached(Agent.agent(), String.t()) :: map() | nil
   def cached(cache, username) do
     key = normalize_key(username)
     now = System.monotonic_time(:millisecond)
