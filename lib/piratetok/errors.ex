@@ -14,6 +14,9 @@ defmodule PirateTok.Live.Error do
   @spec age_restricted(String.t()) :: t()
   def age_restricted(msg), do: %__MODULE__{type: :age_restricted, message: "age-restricted stream: #{msg}"}
 
+  @spec tiktok_blocked(integer()) :: t()
+  def tiktok_blocked(status), do: %__MODULE__{type: :tiktok_blocked, message: "tiktok blocked request: HTTP #{status}"}
+
   @spec device_blocked() :: t()
   def device_blocked, do: %__MODULE__{type: :device_blocked, message: "device blocked — ttwid was flagged, fetch a fresh one"}
 

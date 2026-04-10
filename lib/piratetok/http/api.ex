@@ -21,6 +21,9 @@ defmodule PirateTok.Live.Http.Api do
         "&sourceType=54&staleTime=600000"
 
     case Client.get(url, opts) do
+      {:ok, status, _headers, _body} when status in [403, 429] ->
+        {:error, Error.tiktok_blocked(status)}
+
       {:ok, _status, _headers, body} ->
         parse_room_id_response(body, clean)
 
@@ -80,6 +83,9 @@ defmodule PirateTok.Live.Http.Api do
         "&room_id=#{room_id}"
 
     case Client.get(url, opts) do
+      {:ok, status, _headers, _body} when status in [403, 429] ->
+        {:error, Error.tiktok_blocked(status)}
+
       {:ok, _status, _headers, ""} ->
         {:error, Error.invalid_response("empty response from room/info")}
 
