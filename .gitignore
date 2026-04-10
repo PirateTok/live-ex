@@ -24,3 +24,4 @@ live_ex-*.tar
 
 release.sh
 .env
+testdata/

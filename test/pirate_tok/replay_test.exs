@@ -86,9 +86,7 @@ defmodule PirateTok.ReplayTest do
     candidates =
       [
         {System.get_env("PIRATETOK_TESTDATA"), "captures/#{name}.bin", "manifests/#{name}.json"},
-        {"../live-testdata", "captures/#{name}.bin", "manifests/#{name}.json"},
-        {"../../live-rs/captures", "#{name}.bin", "manifests/#{name}.json"},
-        {"../live-rs/captures", "#{name}.bin", "manifests/#{name}.json"}
+        {"testdata", "captures/#{name}.bin", "manifests/#{name}.json"}
       ]
 
     Enum.find_value(candidates, :skip, fn

@@ -112,7 +112,7 @@ mix run examples/gift_tracker.exs <username>     # track gifts with diamond tota
 Deterministic cross-lib validation against binary WSS captures. Requires testdata from a separate repo:
 
 ```bash
-git clone https://github.com/PirateTok/live-testdata ../live-testdata
+git clone https://github.com/PirateTok/live-testdata testdata
 mix test
 ```
 
