@@ -38,6 +38,7 @@ defmodule PirateTok.Live.Client do
     max_retries: 5,
     user_agent: nil,
     cookies: nil,
+    proxy: nil,
     attempt: 0
   ]
 
@@ -64,7 +65,8 @@ defmodule PirateTok.Live.Client do
       stale_timeout: Keyword.get(opts, :stale_timeout, 60_000),
       max_retries: Keyword.get(opts, :max_retries, 5),
       user_agent: Keyword.get(opts, :user_agent),
-      cookies: Keyword.get(opts, :cookies)
+      cookies: Keyword.get(opts, :cookies),
+      proxy: Keyword.get(opts, :proxy)
     }
 
     send(self(), :resolve_and_connect)
@@ -75,7 +77,9 @@ defmodule PirateTok.Live.Client do
   def handle_info(:resolve_and_connect, state) do
     ua = state.user_agent || UA.random_ua()
 
-    case Api.check_online(state.username, user_agent: ua, timeout: state.timeout) do
+    http_opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy)
+
+    case Api.check_online(state.username, http_opts) do
       {:ok, room_id} ->
         Logger.info("resolved #{state.username} -> room #{room_id}")
         send_event(state.caller, :connected, %{room_id: room_id})
@@ -92,7 +96,9 @@ defmodule PirateTok.Live.Client do
   def handle_info(:connect_ws, state) do
     ua = state.user_agent || UA.random_ua()
 
-    case Ttwid.fetch(user_agent: ua, timeout: state.timeout) do
+    ttwid_opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy)
+
+    case Ttwid.fetch(ttwid_opts) do
       {:ok, ttwid} ->
         tz = UA.system_timezone()
         cdn_host = Url.cdn_host(state.cdn)
@@ -181,4 +187,7 @@ defmodule PirateTok.Live.Client do
   defp send_event(caller, type, data) do
     send(caller, {:tiktok_live, type, data})
   end
+
+  defp proxy_opt(nil), do: []
+  defp proxy_opt(proxy), do: [proxy: proxy]
 end

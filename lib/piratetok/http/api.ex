@@ -11,11 +11,13 @@ defmodule PirateTok.Live.Http.Api do
   @spec check_online(String.t(), keyword()) :: {:ok, String.t()} | {:error, Error.t()}
   def check_online(username, opts \\ []) do
     clean = username |> String.trim() |> String.trim_leading("@")
+    lang = UA.system_language()
+    region = UA.system_region()
 
     url =
       "#{@tiktok_url}api-live/user/room?aid=1988&app_name=tiktok_web" <>
-        "&device_platform=web_pc&app_language=en&browser_language=en-US" <>
-        "&region=RO&user_is_login=false&uniqueId=#{URI.encode(clean)}" <>
+        "&device_platform=web_pc&app_language=#{lang}&browser_language=#{lang}-#{region}" <>
+        "&region=#{region}&user_is_login=false&uniqueId=#{URI.encode(clean)}" <>
         "&sourceType=54&staleTime=600000"
 
     case Client.get(url, opts) do
@@ -64,15 +66,17 @@ defmodule PirateTok.Live.Http.Api do
           {:ok, map()} | {:error, Error.t()}
   def fetch_room_info(room_id, opts \\ []) do
     tz = UA.system_timezone() |> URI.encode()
+    lang = UA.system_language()
+    region = UA.system_region()
 
     url =
       "#{@webcast_url}room/info/?aid=1988&app_name=tiktok_web" <>
-        "&device_platform=web_pc&app_language=en&browser_language=en-US" <>
+        "&device_platform=web_pc&app_language=#{lang}&browser_language=#{lang}-#{region}" <>
         "&browser_name=Mozilla&browser_online=true&browser_platform=Win32" <>
         "&browser_version=5.0+(Windows+NT+10.0%3B+Win64%3B+x64)" <>
         "&cookie_enabled=true&focus_state=true&from_page=user" <>
         "&screen_height=1080&screen_width=1920" <>
-        "&tz_name=#{tz}&webcast_language=en" <>
+        "&tz_name=#{tz}&webcast_language=#{lang}" <>
         "&room_id=#{room_id}"
 
     case Client.get(url, opts) do

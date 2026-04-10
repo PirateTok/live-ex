@@ -22,6 +22,9 @@ defmodule PirateTok.Live.Connection.Wss do
     port = uri.port || 443
     path = "#{uri.path}?#{uri.query}"
 
+    # TODO: WSS proxy support — :gun supports connect_proxy via gun:open/3 opts
+    # but needs CONNECT tunnel setup for TLS-over-proxy. Not trivial with :gun.
+    # HTTP proxy is wired through Http.Client; WSS proxy deferred.
     gun_opts = %{
       protocols: [:http],
       transport: :tls,
