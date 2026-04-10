@@ -10,9 +10,10 @@ defmodule PirateTok.Live.Connection.Url do
   @spec cdn_host(atom()) :: String.t()
   def cdn_host(cdn), do: Map.get(@cdn_hosts, cdn, @cdn_hosts.global)
 
-  @spec build(String.t(), String.t(), String.t()) :: String.t()
-  def build(cdn_host, room_id, tz) do
+  @spec build(String.t(), String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def build(cdn_host, room_id, tz, language \\ "en", region \\ "US") do
     last_rtt = :erlang.float_to_binary(100.0 + :rand.uniform() * 100.0, decimals: 3)
+    browser_language = "#{language}-#{region}"
 
     params = [
       {"version_code", "180800"},
@@ -20,7 +21,7 @@ defmodule PirateTok.Live.Connection.Url do
       {"cookie_enabled", "true"},
       {"screen_width", "1920"},
       {"screen_height", "1080"},
-      {"browser_language", "en-US"},
+      {"browser_language", browser_language},
       {"browser_platform", "Linux x86_64"},
       {"browser_name", "Mozilla"},
       {"browser_version", "5.0 (X11)"},
@@ -30,11 +31,11 @@ defmodule PirateTok.Live.Connection.Url do
       {"sup_ws_ds_opt", "1"},
       {"update_version_code", "2.0.0"},
       {"compress", "gzip"},
-      {"webcast_language", "en"},
+      {"webcast_language", language},
       {"ws_direct", "1"},
       {"aid", "1988"},
       {"live_id", "12"},
-      {"app_language", "en"},
+      {"app_language", language},
       {"client_enter", "1"},
       {"room_id", room_id},
       {"identity", "audience"},

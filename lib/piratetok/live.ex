@@ -74,7 +74,9 @@ defmodule PirateTok.Live do
   - `:max_retries` — reconnection attempts (default 5)
   - `:user_agent` — override random UA pool
   - `:cookies` — session cookies for WSS (appended alongside ttwid)
-  - `:proxy` — HTTP/HTTPS proxy URL for ttwid fetch and API calls (e.g. `"http://host:port"`)
+  - `:proxy` — HTTP/HTTPS proxy URL for all HTTP and WSS connections (e.g. `"http://host:port"`)
+  - `:language` — override detected system language (e.g. `"en"`, `"ro"`)
+  - `:region` — override detected system region (e.g. `"US"`, `"RO"`)
   """
   @spec connect(String.t(), keyword()) :: GenServer.on_start()
   def connect(username, opts \\ []) do

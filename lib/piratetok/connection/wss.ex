@@ -16,33 +16,51 @@ defmodule PirateTok.Live.Connection.Wss do
     heartbeat_ms = Keyword.get(opts, :heartbeat_interval, 10_000)
     stale_ms = Keyword.get(opts, :stale_timeout, 60_000)
     callback = Keyword.fetch!(opts, :callback)
+    proxy = Keyword.get(opts, :proxy)
+    language = Keyword.get(opts, :language, "en")
+    region = Keyword.get(opts, :region, "US")
 
     uri = URI.parse(ws_url)
     host = String.to_charlist(uri.host)
     port = uri.port || 443
     path = "#{uri.path}?#{uri.query}"
 
-    # TODO: WSS proxy support — :gun supports connect_proxy via gun:open/3 opts
-    # but needs CONNECT tunnel setup for TLS-over-proxy. Not trivial with :gun.
-    # HTTP proxy is wired through Http.Client; WSS proxy deferred.
+    tls_opts = [
+      verify: :verify_peer,
+      cacerts: :public_key.cacerts_get(),
+      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)],
+      server_name_indication: host
+    ]
+
+    conn_result = open_connection(proxy, host, port, tls_opts)
+
+    case conn_result do
+      {:ok, conn_pid} ->
+        headers = ws_headers(uri.host, cookies, user_agent, language, region)
+        stream_ref = :gun.ws_upgrade(conn_pid, path, headers)
+        run_upgrade(conn_pid, stream_ref, room_id, heartbeat_ms, stale_ms, callback)
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp open_connection(nil, host, port, tls_opts) do
+    open_connection("", host, port, tls_opts)
+  end
+
+  defp open_connection("", host, port, tls_opts) do
     gun_opts = %{
       protocols: [:http],
       transport: :tls,
-      tls_opts: [
-        verify: :verify_peer,
-        cacerts: :public_key.cacerts_get(),
-        customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)],
-        server_name_indication: host
-      ]
+      tls_opts: tls_opts
     }
 
     case :gun.open(host, port, gun_opts) do
       {:ok, conn_pid} ->
         case :gun.await_up(conn_pid, 10_000) do
           {:ok, _protocol} ->
-            headers = ws_headers(uri.host, cookies, user_agent)
-            stream_ref = :gun.ws_upgrade(conn_pid, path, headers)
-            run_upgrade(conn_pid, stream_ref, room_id, heartbeat_ms, stale_ms, callback)
+            {:ok, conn_pid}
 
           {:error, reason} ->
             :gun.close(conn_pid)
@@ -51,6 +69,48 @@ defmodule PirateTok.Live.Connection.Wss do
 
       {:error, reason} ->
         {:error, Error.http_error("gun open failed: #{inspect(reason)}")}
+    end
+  end
+
+  defp open_connection(proxy_url, host, port, tls_opts) do
+    proxy_uri = URI.parse(proxy_url)
+    proxy_host = String.to_charlist(proxy_uri.host || "localhost")
+    proxy_port = proxy_uri.port || 8080
+
+    # Open a TCP connection to the proxy (no TLS to proxy itself)
+    gun_opts = %{protocols: [:http], transport: :tcp}
+
+    case :gun.open(proxy_host, proxy_port, gun_opts) do
+      {:ok, conn_pid} ->
+        case :gun.await_up(conn_pid, 10_000) do
+          {:ok, _protocol} ->
+            # Send CONNECT request to tunnel TLS through the proxy
+            connect_dest = %{host: host, port: port, protocols: [:http], transport: :tls, tls_opts: tls_opts}
+            stream_ref = :gun.connect(conn_pid, connect_dest)
+
+            case :gun.await(conn_pid, stream_ref, 10_000) do
+              {:response, :fin, 200, _headers} ->
+                {:ok, conn_pid}
+
+              {:response, :nofin, 200, _headers} ->
+                {:ok, conn_pid}
+
+              {:response, _fin, status, _headers} ->
+                :gun.close(conn_pid)
+                {:error, Error.http_error("proxy CONNECT rejected: HTTP #{status}")}
+
+              {:error, reason} ->
+                :gun.close(conn_pid)
+                {:error, Error.http_error("proxy CONNECT failed: #{inspect(reason)}")}
+            end
+
+          {:error, reason} ->
+            :gun.close(conn_pid)
+            {:error, Error.http_error("proxy connection failed: #{inspect(reason)}")}
+        end
+
+      {:error, reason} ->
+        {:error, Error.http_error("proxy open failed: #{inspect(reason)}")}
     end
   end
 
@@ -193,13 +253,15 @@ defmodule PirateTok.Live.Connection.Wss do
     end
   end
 
-  defp ws_headers(host, cookies, user_agent) do
+  defp ws_headers(host, cookies, user_agent, language, region) do
+    accept_lang = "#{language}-#{region},#{language};q=0.9"
+
     [
       {"host", host},
       {"user-agent", user_agent},
       {"referer", "https://www.tiktok.com/"},
       {"origin", "https://www.tiktok.com"},
-      {"accept-language", "en-US,en;q=0.9"},
+      {"accept-language", accept_lang},
       {"accept-encoding", "gzip, deflate"},
       {"cache-control", "no-cache"},
       {"cookie", cookies}

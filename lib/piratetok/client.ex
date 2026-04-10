@@ -39,6 +39,8 @@ defmodule PirateTok.Live.Client do
     user_agent: nil,
     cookies: nil,
     proxy: nil,
+    language: nil,
+    region: nil,
     attempt: 0
   ]
 
@@ -66,7 +68,9 @@ defmodule PirateTok.Live.Client do
       max_retries: Keyword.get(opts, :max_retries, 5),
       user_agent: Keyword.get(opts, :user_agent),
       cookies: Keyword.get(opts, :cookies),
-      proxy: Keyword.get(opts, :proxy)
+      proxy: Keyword.get(opts, :proxy),
+      language: Keyword.get(opts, :language),
+      region: Keyword.get(opts, :region)
     }
 
     send(self(), :resolve_and_connect)
@@ -101,8 +105,10 @@ defmodule PirateTok.Live.Client do
     case Ttwid.fetch(ttwid_opts) do
       {:ok, ttwid} ->
         tz = UA.system_timezone()
+        lang = state.language || UA.system_language()
+        region = state.region || UA.system_region()
         cdn_host = Url.cdn_host(state.cdn)
-        ws_url = Url.build(cdn_host, state.room_id, tz)
+        ws_url = Url.build(cdn_host, state.room_id, tz, lang, region)
 
         ws_cookie =
           case state.cookies do
@@ -116,13 +122,18 @@ defmodule PirateTok.Live.Client do
           send(caller, {:tiktok_live, type, data})
         end
 
+        ws_opts =
+          [
+            heartbeat_interval: state.heartbeat_interval,
+            stale_timeout: state.stale_timeout,
+            callback: callback,
+            language: lang,
+            region: region
+          ] ++ proxy_opt(state.proxy)
+
         task =
           Task.async(fn ->
-            Wss.connect(ws_url, ws_cookie, ua, state.room_id,
-              heartbeat_interval: state.heartbeat_interval,
-              stale_timeout: state.stale_timeout,
-              callback: callback
-            )
+            Wss.connect(ws_url, ws_cookie, ua, state.room_id, ws_opts)
           end)
 
         {:noreply, %{state | ws_task: task}}
