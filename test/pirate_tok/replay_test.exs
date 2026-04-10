@@ -103,6 +103,27 @@ defmodule PirateTok.ReplayTest do
     end)
   end
 
+  defp find_paths_raw(name) do
+    candidates =
+      [
+        {System.get_env("PIRATETOK_TESTDATA"), "captures/#{name}_raw.bin", "manifests/#{name}.json"},
+        {"testdata", "captures/#{name}_raw.bin", "manifests/#{name}.json"}
+      ]
+
+    Enum.find_value(candidates, :skip, fn
+      {nil, _, _} ->
+        nil
+
+      {base, cap_rel, man_rel} ->
+        cap = Path.join(base, cap_rel)
+        man = Path.join(base, man_rel)
+
+        if File.exists?(cap) and File.exists?(man) do
+          {cap, man}
+        end
+    end)
+  end
+
   # --- binary capture reader ---
 
   defp read_capture(path) do
@@ -405,6 +426,19 @@ defmodule PirateTok.ReplayTest do
     end
   end
 
+  defp run_raw_capture_test(name) do
+    case find_paths_raw(name) do
+      :skip ->
+        IO.puts("SKIP #{name}_raw: no testdata (set PIRATETOK_TESTDATA or clone live-testdata)")
+
+      {cap_path, man_path} ->
+        manifest = load_manifest(man_path)
+        frames = read_capture(cap_path)
+        result = replay(frames)
+        assert_replay("#{name}_raw", result, manifest)
+    end
+  end
+
   test "replay calvinterest6" do
     run_capture_test("calvinterest6")
   end
@@ -415,5 +449,17 @@ defmodule PirateTok.ReplayTest do
 
   test "replay fox4newsdallasfortworth" do
     run_capture_test("fox4newsdallasfortworth")
+  end
+
+  test "replay calvinterest6 raw" do
+    run_raw_capture_test("calvinterest6")
+  end
+
+  test "replay happyhappygaltv raw" do
+    run_raw_capture_test("happyhappygaltv")
+  end
+
+  test "replay fox4newsdallasfortworth raw" do
+    run_raw_capture_test("fox4newsdallasfortworth")
   end
 end

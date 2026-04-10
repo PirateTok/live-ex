@@ -7,8 +7,8 @@
 Connect to any TikTok Live stream and receive real-time events in Elixir. No signing server, no API keys, no authentication required.
 
 ```elixir
-# Start a GenServer that connects and streams events to the calling process
-{:ok, pid} = PirateTok.Live.Client.start_link("username_here")
+# Connect and stream events to the calling process
+{:ok, pid} = PirateTok.Live.connect("username_here")
 
 # Events arrive as messages — pattern match on the type
 receive do
@@ -31,7 +31,7 @@ end
 ```elixir
 def deps do
   [
-    {:piratetok_live, "~> 0.1.0"}
+    {:piratetok_live, "~> 0.1.5"}
   ]
 end
 ```
@@ -57,20 +57,30 @@ Requires Elixir >= 1.15.
 ## Features
 
 - **Zero signing dependency** -- no API keys, no signing server, no external auth
-- **64 decoded event types** -- protobuf DSL modules via `protobuf` hex package, no codegen
+- **65 decoded event types** -- protobuf DSL modules via `protobuf` hex package, no codegen
 - **GenServer-based** -- events delivered as process messages `{:tiktok_live, type, data}`
 - **Auto-reconnection** -- stale detection, exponential backoff, self-healing auth
 - **Enriched User data** -- badges, gifter level, moderator status, follow info, fan club
 - **Sub-routed convenience events** -- `:follow`, `:share`, `:join`, `:live_ended` fire alongside raw events
+- **DEVICE_BLOCKED handling** -- detects blocked ttwid at WSS handshake, auto-rotates with 2s retry
+- **Proxy support** -- HTTP/HTTPS/SOCKS5 proxy for all HTTP and WSS connections
+- **Helpers** -- `ProfileCache` (TTL-cached sigi scrape), `GiftStreakTracker` (combo deltas), `LikeAccumulator` (monotonic likes)
 
 ## Configuration
 
 ```elixir
-{:ok, pid} = PirateTok.Live.Client.start_link("username_here",
+{:ok, pid} = PirateTok.Live.connect("username_here",
   cdn: :eu,                  # :eu / :us / :global (default)
   timeout: 15_000,           # HTTP timeout in ms (default 10_000)
+  heartbeat_interval: 10_000, # ms between heartbeats (default 10_000)
+  stale_timeout: 90_000,     # reconnect after N ms of silence (default 60_000)
   max_retries: 10,           # reconnect attempts (default 5)
-  stale_timeout: 90_000      # reconnect after N ms of silence (default 60_000)
+  proxy: "socks5://host:port", # proxy URL (HTTP/HTTPS/SOCKS5)
+  compress: false,           # disable gzip compression for WSS payloads (default true)
+  user_agent: "Mozilla/...", # override random UA rotation with a fixed user-agent
+  cookies: "sessionid=xxx; sid_tt=xxx", # session cookies for 18+ room info
+  language: "en",            # override detected system language (two-letter code)
+  region: "US"               # override detected system region (two-letter code)
 )
 ```
 
@@ -78,13 +88,13 @@ Requires Elixir >= 1.15.
 
 ```elixir
 # Check if user is live
-{:ok, room_id} = PirateTok.Live.Http.Api.check_online("username_here")
+{:ok, room_id} = PirateTok.Live.check_online("username_here")
 
 # Fetch room metadata (title, viewers, stream URLs)
-{:ok, info} = PirateTok.Live.Http.Api.fetch_room_info(room_id)
+{:ok, info} = PirateTok.Live.fetch_room_info(room_id)
 
 # 18+ rooms -- pass session cookies from browser DevTools
-{:ok, info} = PirateTok.Live.Http.Api.fetch_room_info(room_id,
+{:ok, info} = PirateTok.Live.fetch_room_info(room_id,
   cookies: "sessionid=abc; sid_tt=abc")
 ```
 
@@ -105,6 +115,8 @@ mix run examples/basic_chat.exs <username>       # connect + print chat events
 mix run examples/online_check.exs <username>     # check if user is live
 mix run examples/stream_info.exs <username>      # fetch room metadata + stream URLs
 mix run examples/gift_tracker.exs <username>     # track gifts with diamond totals
+mix run examples/gift_streak.exs <username>      # gift streak tracker with per-event deltas
+mix run examples/profile_lookup.exs [username]   # fetch profile metadata + avatars
 ```
 
 ## Replay testing
@@ -117,11 +129,6 @@ mix test
 ```
 
 Tests skip gracefully if testdata is not found. You can also set `PIRATETOK_TESTDATA` to point to a custom location.
-
-## Known gaps
-
-- Explicit `DEVICE_BLOCKED` handshake handling is not implemented yet.
-- Proxy support is not implemented yet.
 
 ## License
 

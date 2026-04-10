@@ -41,6 +41,7 @@ defmodule PirateTok.Live.Client do
     proxy: nil,
     language: nil,
     region: nil,
+    compress: true,
     attempt: 0
   ]
 
@@ -70,7 +71,8 @@ defmodule PirateTok.Live.Client do
       cookies: Keyword.get(opts, :cookies),
       proxy: Keyword.get(opts, :proxy),
       language: Keyword.get(opts, :language),
-      region: Keyword.get(opts, :region)
+      region: Keyword.get(opts, :region),
+      compress: Keyword.get(opts, :compress, true)
     }
 
     send(self(), :resolve_and_connect)
@@ -108,7 +110,7 @@ defmodule PirateTok.Live.Client do
         lang = state.language || UA.system_language()
         region = state.region || UA.system_region()
         cdn_host = Url.cdn_host(state.cdn)
-        ws_url = Url.build(cdn_host, state.room_id, tz, lang, region)
+        ws_url = Url.build(cdn_host, state.room_id, tz, lang, region, state.compress)
 
         ws_cookie =
           case state.cookies do

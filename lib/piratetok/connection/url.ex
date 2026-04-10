@@ -10,8 +10,9 @@ defmodule PirateTok.Live.Connection.Url do
   @spec cdn_host(atom()) :: String.t()
   def cdn_host(cdn), do: Map.get(@cdn_hosts, cdn, @cdn_hosts.global)
 
-  @spec build(String.t(), String.t(), String.t(), String.t(), String.t()) :: String.t()
-  def build(cdn_host, room_id, tz, language \\ "en", region \\ "US") do
+  @spec build(String.t(), String.t(), String.t(), String.t(), String.t(), boolean()) :: String.t()
+  def build(cdn_host, room_id, tz, language \\ "en", region \\ "US", compress \\ true) do
+    compress_value = if compress, do: "gzip", else: ""
     last_rtt = :erlang.float_to_binary(100.0 + :rand.uniform() * 100.0, decimals: 3)
     browser_language = "#{language}-#{region}"
 
@@ -30,7 +31,7 @@ defmodule PirateTok.Live.Connection.Url do
       {"app_name", "tiktok_web"},
       {"sup_ws_ds_opt", "1"},
       {"update_version_code", "2.0.0"},
-      {"compress", "gzip"},
+      {"compress", compress_value},
       {"webcast_language", language},
       {"ws_direct", "1"},
       {"aid", "1988"},
