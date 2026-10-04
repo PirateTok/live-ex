@@ -203,6 +203,33 @@ defmodule PirateTok.WireTest do
     assert enter.payload_type == "im_enter_room"
   end
 
+  test "stale: a silent WSS session returns after stale_timeout (client then reconnects)", ctx do
+    port = start_proxy(ctx.server_opts)
+    started = System.monotonic_time(:millisecond)
+
+    assert {:ok, :normal} =
+             Wss.connect("wss://webcast-ws.tiktok.com/x?y=1", "ttwid=x", "UA", "1",
+               callback: fn _, _ -> :ok end,
+               stale_timeout: 300,
+               proxy: "http://user:p%40ss@127.0.0.1:#{port}",
+               tls_cacerts: ctx.cacerts
+             )
+
+    assert System.monotonic_time(:millisecond) - started < 3_000
+  end
+
+  test "disconnect: PirateTok.Live.disconnect/1 stops the client", ctx do
+    port = start_proxy(ctx.server_opts)
+
+    {:ok, pid} =
+      PirateTok.Live.connect("someone", proxy: "http://user:p%40ss@127.0.0.1:#{port}", tls_cacerts: ctx.cacerts)
+
+    assert_receive {:tiktok_live, :connected, _}, 5_000
+    ref = Process.monitor(pid)
+    :ok = PirateTok.Live.disconnect(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 2_000
+  end
+
   test "proxy: wrong credentials -> WSS dial fails at CONNECT (407)", ctx do
     port = start_proxy(ctx.server_opts)
 
