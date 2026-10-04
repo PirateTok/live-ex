@@ -47,7 +47,9 @@ defmodule PirateTok.Live.Client do
     session: nil,
     attempt_started_at: nil,
     # internal: extra opts for the ttwid fetch (tests point :url at a fake)
-    ttwid_opts: []
+    ttwid_opts: [],
+    # internal: CA certs (DER) replacing the system store — offline wire tests only
+    tls_cacerts: nil
   ]
 
   # -- public API --
@@ -78,7 +80,8 @@ defmodule PirateTok.Live.Client do
       language: Keyword.get(opts, :language),
       region: Keyword.get(opts, :region),
       compress: Keyword.get(opts, :compress, true),
-      ttwid_opts: Keyword.get(opts, :ttwid_opts, [])
+      ttwid_opts: Keyword.get(opts, :ttwid_opts, []),
+      tls_cacerts: Keyword.get(opts, :tls_cacerts)
     }
 
     send(self(), :resolve_and_connect)
@@ -89,7 +92,8 @@ defmodule PirateTok.Live.Client do
   def handle_info(:resolve_and_connect, state) do
     ua = state.user_agent || UA.random_ua()
 
-    http_opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy)
+    http_opts =
+      [user_agent: ua, timeout: state.timeout, language: state.language, region: state.region] ++ transport_opts(state)
 
     case Api.check_online(state.username, http_opts) do
       {:ok, %{room_id: room_id}} ->
@@ -134,7 +138,7 @@ defmodule PirateTok.Live.Client do
             callback: callback,
             language: lang,
             region: region
-          ] ++ proxy_opt(state.proxy)
+          ] ++ transport_opts(state)
 
         task =
           Task.async(fn ->
@@ -206,7 +210,7 @@ defmodule PirateTok.Live.Client do
 
   defp ensure_session(state) do
     ua = state.user_agent || UA.random_ua()
-    opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy) ++ state.ttwid_opts
+    opts = [user_agent: ua, timeout: state.timeout] ++ transport_opts(state) ++ state.ttwid_opts
 
     case Ttwid.fetch_retrying(opts) do
       {:ok, ttwid} -> {:ok, {ttwid, ua}}
@@ -220,6 +224,7 @@ defmodule PirateTok.Live.Client do
     send(caller, {:tiktok_live, type, data})
   end
 
-  defp proxy_opt(nil), do: []
-  defp proxy_opt(proxy), do: [proxy: proxy]
+  defp transport_opts(state) do
+    Enum.reject([proxy: state.proxy, tls_cacerts: state.tls_cacerts], fn {_, v} -> is_nil(v) end)
+  end
 end

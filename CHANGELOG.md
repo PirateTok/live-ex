@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.2.0
+## 0.2.1
+
+- **Fix: proxies actually work.** HTTP requests passed `https_proxy` as a per-request option, which `:httpc` ignores (requests went direct); proxies are now set on a per-proxy httpc profile. Proxied WSS sent the WebSocket upgrade outside the CONNECT tunnel; it now waits for `gun_tunnel_up` and upgrades with `tunnel: stream_ref`.
+- Proxy auth: `http://user:pass@host:port` → `Proxy-Authorization: Basic` on HTTP (httpc `proxy_auth`) and the WSS CONNECT (gun `username`/`password`). SOCKS URLs are rejected with `:invalid_url` (README no longer claims SOCKS5).
+- Locale (`:language` / `:region`) now reaches `check_online` from the client.
+- Tests: `wire_test.exs` drives the real client through a local Basic-auth CONNECT proxy + TLS fake (generated CA): room/ttwid/WSS tunnels, UA / cookies / locale / compress / heartbeat on the wire, heartbeat + enter_room frames; ack and room-info parsing fixtures.
+
+## 0.2.0 (tagged, not on Hex — publish blocked on interactive auth)
 
 - ttwid fetch retries up to 8× (750 ms apart) when tiktok.com answers without the cookie; transport errors fail fast.
 - Reconnect loop: ttwid + UA reused across reconnects, rotated only on DEVICE_BLOCKED or a session that died within 30 s. A ttwid failure is a failed attempt (`:reconnecting` fires) instead of stopping the client.

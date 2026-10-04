@@ -127,7 +127,9 @@ defmodule PirateTok.Live.Http.Api do
     end
   end
 
-  defp parse_room_info(body) do
+  @doc false
+  @spec parse_room_info(binary()) :: {:ok, map()} | {:error, Error.t()}
+  def parse_room_info(body) do
     case Jason.decode(body) do
       {:ok, json} ->
         case json["status_code"] do

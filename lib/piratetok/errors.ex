@@ -14,6 +14,9 @@ defmodule PirateTok.Live.Error do
   @spec age_restricted(String.t()) :: t()
   def age_restricted(msg), do: %__MODULE__{type: :age_restricted, message: "age-restricted stream: #{msg}"}
 
+  @spec invalid_url(String.t()) :: t()
+  def invalid_url(msg), do: %__MODULE__{type: :invalid_url, message: msg}
+
   @spec api_error(integer()) :: t()
   def api_error(code), do: %__MODULE__{type: :api_error, message: "tiktok api error: statusCode=#{code}"}
 

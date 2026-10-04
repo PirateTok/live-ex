@@ -8,6 +8,7 @@ defmodule PirateTok.Live.Connection.Wss do
   alias PirateTok.Live.Connection.Frames
   alias PirateTok.Live.Error
   alias PirateTok.Live.Events.Mapper
+  alias PirateTok.Live.Http.Client
   alias PirateTok.Live.Proto.{WebcastPushFrame, WebcastResponse}
 
   @spec connect(String.t(), String.t(), String.t(), String.t(), keyword()) ::
@@ -25,19 +26,13 @@ defmodule PirateTok.Live.Connection.Wss do
     port = uri.port || 443
     path = "#{uri.path}?#{uri.query}"
 
-    tls_opts = [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)],
-      server_name_indication: host
-    ]
+    tls_opts = Client.tls_opts("https://#{uri.host}/", opts)
 
-    conn_result = open_connection(proxy, host, port, tls_opts)
-
-    case conn_result do
-      {:ok, conn_pid} ->
+    case open_connection(proxy, host, port, tls_opts) do
+      {:ok, conn_pid, upgrade_opts} ->
         headers = ws_headers(uri.host, cookies, user_agent, language, region)
-        stream_ref = :gun.ws_upgrade(conn_pid, path, headers)
+        # through a proxy the upgrade must ride the CONNECT tunnel stream
+        stream_ref = :gun.ws_upgrade(conn_pid, path, headers, upgrade_opts)
         run_upgrade(conn_pid, stream_ref, room_id, heartbeat_ms, stale_ms, callback)
 
       {:error, _} = err ->
@@ -60,7 +55,7 @@ defmodule PirateTok.Live.Connection.Wss do
       {:ok, conn_pid} ->
         case :gun.await_up(conn_pid, 10_000) do
           {:ok, _protocol} ->
-            {:ok, conn_pid}
+            {:ok, conn_pid, %{}}
 
           {:error, reason} ->
             :gun.close(conn_pid)
@@ -73,10 +68,12 @@ defmodule PirateTok.Live.Connection.Wss do
   end
 
   defp open_connection(proxy_url, host, port, tls_opts) do
-    proxy_uri = URI.parse(proxy_url)
-    proxy_host = String.to_charlist(proxy_uri.host || "localhost")
-    proxy_port = proxy_uri.port || 8080
+    with {:ok, {proxy_host, proxy_port, creds}} <- Client.parse_proxy(proxy_url) do
+      open_tunnel(proxy_host, proxy_port, creds, host, port, tls_opts)
+    end
+  end
 
+  defp open_tunnel(proxy_host, proxy_port, creds, host, port, tls_opts) do
     # Open a TCP connection to the proxy (no TLS to proxy itself)
     gun_opts = %{protocols: [:http], transport: :tcp}
 
@@ -84,16 +81,20 @@ defmodule PirateTok.Live.Connection.Wss do
       {:ok, conn_pid} ->
         case :gun.await_up(conn_pid, 10_000) do
           {:ok, _protocol} ->
-            # Send CONNECT request to tunnel TLS through the proxy
+            # CONNECT tunnel; gun sends Proxy-Authorization: Basic when username is set
             connect_dest = %{host: host, port: port, protocols: [:http], transport: :tls, tls_opts: tls_opts}
+
+            connect_dest =
+              case creds do
+                nil -> connect_dest
+                {user, pass} -> Map.merge(connect_dest, %{username: user, password: pass})
+              end
+
             stream_ref = :gun.connect(conn_pid, connect_dest)
 
             case :gun.await(conn_pid, stream_ref, 10_000) do
-              {:response, :fin, 200, _headers} ->
-                {:ok, conn_pid}
-
-              {:response, :nofin, 200, _headers} ->
-                {:ok, conn_pid}
+              {:response, _fin, 200, _headers} ->
+                await_tunnel(conn_pid, stream_ref)
 
               {:response, _fin, status, _headers} ->
                 :gun.close(conn_pid)
@@ -111,6 +112,25 @@ defmodule PirateTok.Live.Connection.Wss do
 
       {:error, reason} ->
         {:error, Error.http_error("proxy open failed: #{inspect(reason)}")}
+    end
+  end
+
+  # CONNECT accepted: wait until gun has the TLS session up inside the tunnel
+  defp await_tunnel(conn_pid, stream_ref) do
+    receive do
+      {:gun_tunnel_up, ^conn_pid, ^stream_ref, _protocol} ->
+        {:ok, conn_pid, %{tunnel: stream_ref}}
+
+      {:gun_error, ^conn_pid, ^stream_ref, reason} ->
+        :gun.close(conn_pid)
+        {:error, Error.http_error("proxy tunnel failed: #{inspect(reason)}")}
+
+      {:gun_down, ^conn_pid, _protocol, reason, _killed} ->
+        {:error, Error.http_error("proxy tunnel down: #{inspect(reason)}")}
+    after
+      10_000 ->
+        :gun.close(conn_pid)
+        {:error, Error.http_error("proxy tunnel TLS timeout")}
     end
   end
 
@@ -202,23 +222,29 @@ defmodule PirateTok.Live.Connection.Wss do
   end
 
   defp process_binary(data, conn_pid, stream_ref, callback) do
+    handle_push_frame(data, fn bin -> :gun.ws_send(conn_pid, stream_ref, {:binary, bin}) end, callback)
+  end
+
+  @doc false
+  # Decode one WSS binary message: acks via `send` when TikTok asks, events via `callback`.
+  @spec handle_push_frame(binary(), (binary() -> any()), (atom(), any() -> any())) :: any()
+  def handle_push_frame(data, send, callback) do
     case safe_decode(WebcastPushFrame, data) do
       {:ok, frame} ->
-        handle_frame(frame, conn_pid, stream_ref, callback)
+        handle_frame(frame, send, callback)
 
       {:error, reason} ->
         Logger.warning("frame decode error: #{inspect(reason)}")
     end
   end
 
-  defp handle_frame(%{payload_type: "msg", payload: payload, log_id: log_id}, conn_pid, stream_ref, callback) do
+  defp handle_frame(%{payload_type: "msg", payload: payload, log_id: log_id}, send, callback) do
     case Frames.decompress_if_gzipped(payload) do
       {:ok, decompressed} ->
         case safe_decode(WebcastResponse, decompressed) do
           {:ok, response} ->
             if response.needs_ack and response.internal_ext != "" do
-              ack = Frames.build_ack(log_id, response.internal_ext)
-              :gun.ws_send(conn_pid, stream_ref, {:binary, ack})
+              send.(Frames.build_ack(log_id, response.internal_ext))
             end
 
             Enum.each(response.messages, fn msg ->
@@ -235,13 +261,13 @@ defmodule PirateTok.Live.Connection.Wss do
     end
   end
 
-  defp handle_frame(%{payload_type: "im_enter_room_resp"}, _cp, _sr, _cb) do
+  defp handle_frame(%{payload_type: "im_enter_room_resp"}, _send, _cb) do
     Logger.info("room entry confirmed")
   end
 
-  defp handle_frame(%{payload_type: "hb"}, _cp, _sr, _cb), do: :ok
+  defp handle_frame(%{payload_type: "hb"}, _send, _cb), do: :ok
 
-  defp handle_frame(%{payload_type: other}, _cp, _sr, _cb) do
+  defp handle_frame(%{payload_type: other}, _send, _cb) do
     Logger.debug("unhandled payload type: #{other}")
   end
 

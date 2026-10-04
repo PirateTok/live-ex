@@ -63,7 +63,7 @@ Requires Elixir >= 1.15.
 - **Enriched User data** -- badges, gifter level, moderator status, follow info, fan club
 - **Sub-routed convenience events** -- `:follow`, `:share`, `:join`, `:live_ended` fire alongside raw events
 - **DEVICE_BLOCKED handling** -- detects blocked ttwid at WSS handshake, auto-rotates with 2s retry
-- **Proxy support** -- HTTP/HTTPS/SOCKS5 proxy for all HTTP and WSS connections
+- **Proxy support** -- HTTP CONNECT proxy (optional Basic auth) for all HTTP and WSS connections; SOCKS is not supported
 - **Helpers** -- `ProfileCache` (TTL-cached sigi scrape), `GiftStreakTracker` (combo deltas), `LikeAccumulator` (monotonic likes)
 
 ## Configuration
@@ -75,7 +75,7 @@ Requires Elixir >= 1.15.
   heartbeat_interval: 10_000, # ms between heartbeats (default 10_000)
   stale_timeout: 90_000,     # reconnect after N ms of silence (default 60_000)
   max_retries: 10,           # consecutive failed reconnects before giving up (default 5)
-  proxy: "socks5://host:port", # proxy URL (HTTP/HTTPS/SOCKS5)
+  proxy: "http://user:pass@host:port", # HTTP CONNECT proxy, Basic auth optional (SOCKS rejected)
   compress: false,           # disable gzip compression for WSS payloads (default true)
   user_agent: "Mozilla/...", # override random UA rotation with a fixed user-agent
   cookies: "sessionid=xxx; sid_tt=xxx", # session cookies for 18+ room info
