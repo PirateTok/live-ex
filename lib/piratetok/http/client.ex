@@ -36,10 +36,30 @@ defmodule PirateTok.Live.Http.Client do
           {:ok, status, resp_headers, body}
 
         {:error, reason} ->
-          {:error, Error.http_error("request failed: #{inspect(reason)}")}
+          {:error, Error.http_error("request failed: #{describe(reason)}")}
       end
     end
   end
+
+  # httpc's failed_connect embeds the full TLS option list (incl. every CA cert) — report
+  # only the target and the actual failure reason.
+  defp describe({:failed_connect, parts}) do
+    target =
+      case List.keyfind(parts, :to_address, 0) do
+        {:to_address, {host, port}} -> "#{host}:#{port}"
+        _ -> "?"
+      end
+
+    reason =
+      Enum.find_value(parts, "unknown", fn
+        {transport, _opts, why} when transport in [:tls, :inet, :inet6] -> inspect(why)
+        _ -> nil
+      end)
+
+    "connect to #{target} failed: #{reason}"
+  end
+
+  defp describe(reason), do: inspect(reason)
 
   # verify_peer against the system store; :tls_cacerts (DER list) replaces it — used by
   # the offline wire tests to trust their generated CA.

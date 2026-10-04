@@ -243,6 +243,29 @@ defmodule PirateTok.WireTest do
     assert msg =~ "407"
   end
 
+  test "tls: cert from an untrusted CA is rejected by default (system store) — HTTP and WSS", ctx do
+    port = start_proxy(ctx.server_opts)
+    proxy = "http://user:p%40ss@127.0.0.1:#{port}"
+
+    assert {:error, %{type: :http_error, message: http_msg}} = Ttwid.fetch(proxy: proxy)
+    assert http_msg =~ "unknown_ca"
+
+    assert {:error, %{message: ws_msg}} =
+             Wss.connect("wss://webcast-ws.tiktok.com/x?y=1", "ttwid=x", "UA", "1", callback: fn _, _ -> :ok end, proxy: proxy)
+
+    assert ws_msg =~ "unknown_ca"
+  end
+
+  test "tls: trusted CA but wrong hostname is rejected (hostname check on)", ctx do
+    port = start_proxy(ctx.server_opts)
+    proxy = "http://user:p%40ss@127.0.0.1:#{port}"
+
+    assert {:error, %{message: msg}} =
+             Ttwid.fetch(proxy: proxy, url: "https://not-in-the-cert.example/", tls_cacerts: ctx.cacerts)
+
+    assert msg =~ "hostname_check_failed"
+  end
+
   test "proxy: socks5 rejected explicitly (HTTP CONNECT only)" do
     assert {:error, %{type: :invalid_url}} = Ttwid.fetch(proxy: "socks5://127.0.0.1:1080")
   end

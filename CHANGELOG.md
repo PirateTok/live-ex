@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- `ProfileCache` takes `:base_url` (origin for the ttwid + profile requests) and fetches ttwid with the bounded retry; `Sigi.parse_profile/2` is public and pure; a malformed SIGI blob is a `:profile_scrape` error (was a raw `Jason.DecodeError`).
+- HTTP connect errors report the target and the real reason (`unknown_ca`, `hostname_check_failed`, …) instead of an inspected option list holding every CA cert.
+- Tests: ProfileCache against a local origin (parse, cache hit, negative caching, single ttwid), TLS verification proofs (untrusted CA rejected on HTTP + WSS, hostname mismatch rejected), examples compile check.
+
 ## 0.2.1
 
 - **Fix: proxies actually work.** HTTP requests passed `https_proxy` as a per-request option, which `:httpc` ignores (requests went direct); proxies are now set on a per-proxy httpc profile. Proxied WSS sent the WebSocket upgrade outside the CONNECT tunnel; it now waits for `gun_tunnel_up` and upgrades with `tunnel: stream_ref`.

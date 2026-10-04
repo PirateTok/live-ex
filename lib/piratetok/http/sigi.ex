@@ -33,7 +33,8 @@ defmodule PirateTok.Live.Http.Sigi do
     extra_cookies = Keyword.get(opts, :cookies, "")
 
     cookie = build_cookie(ttwid, extra_cookies)
-    url = "https://www.tiktok.com/@#{clean}"
+    # :base_url overrides the origin (offline tests point it at a local server)
+    url = Keyword.get(opts, :base_url, "https://www.tiktok.com/") <> "@#{clean}"
 
     merged_opts =
       opts
@@ -42,16 +43,18 @@ defmodule PirateTok.Live.Http.Sigi do
 
     case Client.get(url, merged_opts) do
       {:ok, _status, _headers, body} ->
-        parse_sigi(body, clean)
+        parse_profile(body, clean)
 
       {:error, _} = err ->
         err
     end
   end
 
-  defp parse_sigi(html, username) do
+  @doc "Parse a profile page (SIGI JSON) into a profile map or a profile_* error. Pure."
+  @spec parse_profile(binary(), String.t()) :: {:ok, sigi_profile()} | {:error, Error.t()}
+  def parse_profile(html, username) do
     with {:ok, json_str} <- extract_sigi_json(html),
-         {:ok, blob} <- Jason.decode(json_str) do
+         {:ok, blob} <- decode_json(json_str) do
       scope = get_in(blob, ["__DEFAULT_SCOPE__"])
 
       if is_nil(scope) do
@@ -65,6 +68,13 @@ defmodule PirateTok.Live.Http.Sigi do
           parse_user_detail(detail, username)
         end
       end
+    end
+  end
+
+  defp decode_json(json_str) do
+    case Jason.decode(json_str) do
+      {:ok, blob} -> {:ok, blob}
+      {:error, %Jason.DecodeError{} = e} -> {:error, Error.profile_scrape("SIGI JSON parse failed: #{Exception.message(e)}")}
     end
   end
 

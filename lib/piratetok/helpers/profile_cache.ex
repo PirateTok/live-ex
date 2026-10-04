@@ -24,15 +24,20 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
   @ttwid_timeout 10_000
   @scrape_timeout 15_000
 
-  defstruct entries: %{}, ttwid: nil, ttl_ms: @default_ttl_ms, proxy: nil, user_agent: nil, cookies: ""
+  defstruct entries: %{}, ttwid: nil, ttl_ms: @default_ttl_ms, proxy: nil, user_agent: nil, cookies: "", base_url: nil
 
+  @doc """
+  Options: `:ttl_ms` (300_000), `:proxy`, `:user_agent`, `:cookies`, and `:base_url`
+  (origin for the ttwid + profile requests, default `https://www.tiktok.com/`).
+  """
   @spec start_link(keyword()) :: Agent.on_start()
   def start_link(opts \\ []) do
     state = %__MODULE__{
       ttl_ms: Keyword.get(opts, :ttl_ms, @default_ttl_ms),
       proxy: Keyword.get(opts, :proxy),
       user_agent: Keyword.get(opts, :user_agent),
-      cookies: Keyword.get(opts, :cookies, "")
+      cookies: Keyword.get(opts, :cookies, ""),
+      base_url: Keyword.get(opts, :base_url)
     }
 
     Agent.start_link(fn -> state end)
@@ -90,11 +95,12 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
         err
 
       {:ok, tw} ->
-        {ua, cookies, proxy} = Agent.get(cache, fn s -> {s.user_agent, s.cookies, s.proxy} end)
+        {ua, cookies, proxy, base_url} = Agent.get(cache, fn s -> {s.user_agent, s.cookies, s.proxy, s.base_url} end)
 
         opts = [timeout: @scrape_timeout, cookies: cookies]
         opts = if ua, do: Keyword.put(opts, :user_agent, ua), else: opts
         opts = if proxy, do: Keyword.put(opts, :proxy, proxy), else: opts
+        opts = if base_url, do: Keyword.put(opts, :base_url, base_url), else: opts
 
         result = Sigi.scrape_profile(key, tw, opts)
 
@@ -118,7 +124,7 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
   end
 
   defp ensure_ttwid(cache) do
-    {existing, proxy, ua} = Agent.get(cache, fn s -> {s.ttwid, s.proxy, s.user_agent} end)
+    {existing, proxy, ua, base_url} = Agent.get(cache, fn s -> {s.ttwid, s.proxy, s.user_agent, s.base_url} end)
 
     if existing do
       {:ok, existing}
@@ -126,8 +132,9 @@ defmodule PirateTok.Live.Helpers.ProfileCache do
       opts = [timeout: @ttwid_timeout]
       opts = if ua, do: Keyword.put(opts, :user_agent, ua), else: opts
       opts = if proxy, do: Keyword.put(opts, :proxy, proxy), else: opts
+      opts = if base_url, do: Keyword.put(opts, :url, base_url), else: opts
 
-      case Ttwid.fetch(opts) do
+      case Ttwid.fetch_retrying(opts) do
         {:ok, tw} ->
           Agent.update(cache, fn s -> %{s | ttwid: tw} end)
           {:ok, tw}
