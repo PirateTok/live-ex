@@ -10,8 +10,8 @@ defmodule PirateTok.Live.Connection.Url do
   @spec cdn_host(atom()) :: String.t()
   def cdn_host(cdn), do: Map.get(@cdn_hosts, cdn, @cdn_hosts.global)
 
-  @spec build(String.t(), String.t(), String.t(), String.t(), String.t(), boolean()) :: String.t()
-  def build(cdn_host, room_id, tz, language \\ "en", region \\ "US", compress \\ true) do
+  @spec build(String.t(), String.t(), String.t(), String.t(), String.t(), boolean(), pos_integer()) :: String.t()
+  def build(cdn_host, room_id, tz, language \\ "en", region \\ "US", compress \\ true, heartbeat_ms \\ 10_000) do
     compress_value = if compress, do: "gzip", else: ""
     last_rtt = :erlang.float_to_binary(100.0 + :rand.uniform() * 100.0, decimals: 3)
     browser_language = "#{language}-#{region}"
@@ -42,7 +42,7 @@ defmodule PirateTok.Live.Connection.Url do
       {"identity", "audience"},
       {"history_comment_count", "6"},
       {"last_rtt", last_rtt},
-      {"heartbeat_duration", "10000"},
+      {"heartbeat_duration", Integer.to_string(heartbeat_ms)},
       {"resp_content_type", "protobuf"},
       {"did_rule", "3"}
     ]

@@ -7,7 +7,7 @@ username = Enum.at(args, 0) || raise "usage: stream_info.exs <username> [cookies
 cookies = Enum.at(args, 1)
 
 case PirateTok.Live.check_online(username) do
-  {:ok, room_id} ->
+  {:ok, %{room_id: room_id}} ->
     IO.puts("=== Room Info ===")
     IO.puts("Username: @#{username}")
     IO.puts("Room ID:  #{room_id}")

@@ -2,17 +2,16 @@ defmodule PirateTok.Live.Http.Api do
   @moduledoc false
 
   alias PirateTok.Live.Error
-  alias PirateTok.Live.Http.Client
-  alias PirateTok.Live.Http.UA
+  alias PirateTok.Live.Http.{Audience, Client, UA}
 
   @tiktok_url "https://www.tiktok.com/"
   @webcast_url "https://webcast.tiktok.com/webcast/"
 
-  @spec check_online(String.t(), keyword()) :: {:ok, String.t()} | {:error, Error.t()}
+  @spec check_online(String.t(), keyword()) ::
+          {:ok, %{room_id: String.t(), anchor_id: String.t() | nil}} | {:error, Error.t()}
   def check_online(username, opts \\ []) do
     clean = username |> String.trim() |> String.trim_leading("@")
-    lang = UA.system_language()
-    region = UA.system_region()
+    {lang, region} = locale(opts)
 
     url =
       "#{@tiktok_url}api-live/user/room?aid=1988&app_name=tiktok_web" <>
@@ -21,28 +20,30 @@ defmodule PirateTok.Live.Http.Api do
         "&sourceType=54&staleTime=600000"
 
     case Client.get(url, opts) do
-      {:ok, status, _headers, _body} when status in [403, 429] ->
-        {:error, Error.tiktok_blocked(status)}
-
-      {:ok, _status, _headers, body} ->
-        parse_room_id_response(body, clean)
-
-      {:error, _} = err ->
-        err
+      {:ok, status, _headers, body} -> parse_room_id_response(status, body, clean)
+      {:error, _} = err -> err
     end
   end
 
-  defp parse_room_id_response(body, username) do
-    case Jason.decode(body) do
-      {:ok, json} ->
-        case json["statusCode"] do
-          0 -> extract_room_id(json, username)
-          19_881_007 -> {:error, Error.user_not_found(username)}
-          code -> {:error, Error.invalid_response("tiktok api statusCode=#{code}")}
-        end
+  defp locale(opts) do
+    {Keyword.get(opts, :language) || UA.system_language(), Keyword.get(opts, :region) || UA.system_region()}
+  end
 
-      {:error, _} ->
-        {:error, Error.invalid_response("JSON parse failed")}
+  @doc false
+  @spec parse_room_id_response(integer(), binary(), String.t()) ::
+          {:ok, %{room_id: String.t(), anchor_id: String.t() | nil}} | {:error, Error.t()}
+  def parse_room_id_response(status, _body, _username) when status in [403, 429],
+    do: {:error, Error.tiktok_blocked(status)}
+
+  def parse_room_id_response(status, "", _username), do: {:error, Error.tiktok_blocked(status, "empty response")}
+
+  def parse_room_id_response(status, body, username) do
+    case Jason.decode(body) do
+      {:ok, %{"statusCode" => 0} = json} -> extract_room_id(json, username)
+      {:ok, %{"statusCode" => 19_881_007}} -> {:error, Error.user_not_found(username)}
+      {:ok, %{"statusCode" => code}} when is_integer(code) -> {:error, Error.api_error(code)}
+      {:ok, _} -> {:error, Error.invalid_response("no statusCode in api-live/user/room response")}
+      {:error, _} -> {:error, Error.tiktok_blocked(status, "non-JSON response")}
     end
   end
 
@@ -58,10 +59,40 @@ defmodule PirateTok.Live.Http.Api do
           0
 
       if live_status == 2 do
-        {:ok, room_id}
+        {:ok, %{room_id: room_id, anchor_id: anchor_id(get_in(json, ["data", "user", "id"]))}}
       else
         {:error, Error.host_not_online("status=#{live_status}")}
       end
+    end
+  end
+
+  # streamer user id — TikTok sends a string; stringify an int just in case
+  defp anchor_id(id) when is_binary(id) and id != "", do: id
+  defp anchor_id(id) when is_integer(id), do: Integer.to_string(id)
+  defp anchor_id(_), do: nil
+
+  @spec fetch_room_audience(String.t(), String.t() | nil, keyword()) ::
+          {:ok, Audience.t()} | {:error, Error.t()}
+  def fetch_room_audience(room_id, anchor_id, opts \\ [])
+
+  def fetch_room_audience(room_id, anchor_id, opts) when anchor_id in [nil, ""] do
+    with {:ok, info} <- fetch_room_info(room_id, opts),
+         {:ok, owner} <- Audience.owner_id(info.raw_json) do
+      fetch_room_audience(room_id, owner, opts)
+    end
+  end
+
+  def fetch_room_audience(room_id, anchor_id, opts) do
+    {lang, region} = locale(opts)
+
+    url =
+      "#{@webcast_url}ranklist/online_audience/?aid=1988&app_name=tiktok_web" <>
+        "&device_platform=web_pc&app_language=#{lang}&browser_language=#{lang}-#{region}" <>
+        "&channel=tiktok_web&room_id=#{room_id}&anchor_id=#{anchor_id}"
+
+    case Client.get(url, opts) do
+      {:ok, status, _headers, body} -> Audience.parse(body, status)
+      {:error, _} = err -> err
     end
   end
 
@@ -69,8 +100,7 @@ defmodule PirateTok.Live.Http.Api do
           {:ok, map()} | {:error, Error.t()}
   def fetch_room_info(room_id, opts \\ []) do
     tz = UA.system_timezone() |> URI.encode()
-    lang = UA.system_language()
-    region = UA.system_region()
+    {lang, region} = locale(opts)
 
     url =
       "#{@webcast_url}room/info/?aid=1988&app_name=tiktok_web" <>

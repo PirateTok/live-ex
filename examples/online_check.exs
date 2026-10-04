@@ -5,8 +5,8 @@
 [username | _] = System.argv()
 
 case PirateTok.Live.check_online(username) do
-  {:ok, room_id} ->
-    IO.puts("  LIVE  @#{username} — room #{room_id}")
+  {:ok, %{room_id: room_id, anchor_id: anchor_id}} ->
+    IO.puts("  LIVE  @#{username} — room #{room_id} (anchor #{anchor_id})")
 
   {:error, %{type: :host_not_online}} ->
     IO.puts("  OFF   @#{username} — not currently live")

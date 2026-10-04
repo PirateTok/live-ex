@@ -82,45 +82,17 @@ defmodule PirateTok.ReplayTest do
 
   # --- testdata location ---
 
-  defp find_paths(name) do
-    candidates =
-      [
-        {System.get_env("PIRATETOK_TESTDATA"), "captures/#{name}.bin", "manifests/#{name}.json"},
-        {"testdata", "captures/#{name}.bin", "manifests/#{name}.json"}
-      ]
+  # Roots in order: $PIRATETOK_TESTDATA, local testdata/, sibling ../live-testdata.
+  # Manifests live in <root>/manifests/ or (live-testdata layout) <root>/captures/manifests/.
+  defp find_paths(name, suffix) do
+    roots = Enum.reject([System.get_env("PIRATETOK_TESTDATA"), "testdata", "../live-testdata"], &(&1 in [nil, ""]))
 
-    Enum.find_value(candidates, :skip, fn
-      {nil, _, _} ->
-        nil
+    Enum.find_value(roots, :missing, fn root ->
+      cap = Path.join(root, "captures/#{name}#{suffix}.bin")
 
-      {base, cap_rel, man_rel} ->
-        cap = Path.join(base, cap_rel)
-        man = Path.join(base, man_rel)
-
-        if File.exists?(cap) and File.exists?(man) do
-          {cap, man}
-        end
-    end)
-  end
-
-  defp find_paths_raw(name) do
-    candidates =
-      [
-        {System.get_env("PIRATETOK_TESTDATA"), "captures/#{name}_raw.bin", "manifests/#{name}.json"},
-        {"testdata", "captures/#{name}_raw.bin", "manifests/#{name}.json"}
-      ]
-
-    Enum.find_value(candidates, :skip, fn
-      {nil, _, _} ->
-        nil
-
-      {base, cap_rel, man_rel} ->
-        cap = Path.join(base, cap_rel)
-        man = Path.join(base, man_rel)
-
-        if File.exists?(cap) and File.exists?(man) do
-          {cap, man}
-        end
+      ["manifests", "captures/manifests"]
+      |> Enum.map(&Path.join([root, &1, "#{name}.json"]))
+      |> Enum.find_value(fn man -> if File.exists?(cap) and File.exists?(man), do: {cap, man} end)
     end)
   end
 
@@ -134,7 +106,7 @@ defmodule PirateTok.ReplayTest do
   defp parse_frames(data, pos, acc) when byte_size(data) - pos < 4, do: Enum.reverse(acc)
 
   defp parse_frames(data, pos, acc) do
-    <<_skip::binary-size(pos), len_bytes::binary-size(4), _rest::binary>> = data
+    <<_skip::binary-size(^pos), len_bytes::binary-size(4), _rest::binary>> = data
     <<len::little-unsigned-32>> = len_bytes
     frame_start = pos + 4
 
@@ -142,7 +114,7 @@ defmodule PirateTok.ReplayTest do
       raise "truncated frame at offset #{pos}"
     end
 
-    <<_skip2::binary-size(frame_start), frame::binary-size(len), _rest2::binary>> = data
+    <<_skip2::binary-size(^frame_start), frame::binary-size(^len), _rest2::binary>> = data
     parse_frames(data, frame_start + len, [frame | acc])
   end
 
@@ -413,31 +385,25 @@ defmodule PirateTok.ReplayTest do
 
   # --- test runner ---
 
-  defp run_capture_test(name) do
-    case find_paths(name) do
-      :skip ->
-        IO.puts("SKIP #{name}: no testdata (set PIRATETOK_TESTDATA or clone live-testdata)")
+  # Missing testdata is a failure, never a silent pass.
+  defp run_capture_test(name, suffix \\ "") do
+    label = name <> suffix
+
+    case find_paths(name, suffix) do
+      :missing ->
+        flunk("#{label}: no testdata (set PIRATETOK_TESTDATA or clone live-testdata)")
 
       {cap_path, man_path} ->
+        IO.puts("LOAD #{label} <- #{cap_path} + #{man_path}")
         manifest = load_manifest(man_path)
         frames = read_capture(cap_path)
+        assert length(frames) == manifest["frame_count"], "#{label}: frame_count"
         result = replay(frames)
-        assert_replay(name, result, manifest)
+        assert_replay(label, result, manifest)
     end
   end
 
-  defp run_raw_capture_test(name) do
-    case find_paths_raw(name) do
-      :skip ->
-        IO.puts("SKIP #{name}_raw: no testdata (set PIRATETOK_TESTDATA or clone live-testdata)")
-
-      {cap_path, man_path} ->
-        manifest = load_manifest(man_path)
-        frames = read_capture(cap_path)
-        result = replay(frames)
-        assert_replay("#{name}_raw", result, manifest)
-    end
-  end
+  defp run_raw_capture_test(name), do: run_capture_test(name, "_raw")
 
   test "replay calvinterest6" do
     run_capture_test("calvinterest6")

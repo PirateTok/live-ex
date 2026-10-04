@@ -1,7 +1,7 @@
 defmodule PirateTok.Live.MixProject do
   use Mix.Project
 
-  @version "0.1.6"
+  @version "0.2.0"
   @source_url "https://github.com/PirateTok/live-ex"
 
   def project do
@@ -37,7 +37,7 @@ defmodule PirateTok.Live.MixProject do
     [
       name: "piratetok_live",
       licenses: ["0BSD"],
-      links: %{"GitHub" => @source_url, "Homepage" => "https://piratetok.boats"},
+      links: %{"GitHub" => @source_url, "Homepage" => "https://piratetok.rosint.org"},
       maintainers: ["Zmole Cristian"]
     ]
   end

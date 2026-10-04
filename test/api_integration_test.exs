@@ -45,7 +45,8 @@ defmodule PirateTok.ApiIntegrationTest do
 
     clean = String.trim(user)
     result = PirateTok.Live.check_online(clean, timeout: @http_timeout)
-    assert {:ok, room_id} = result
+    assert {:ok, %{room_id: room_id, anchor_id: anchor_id}} = result
+    assert is_binary(anchor_id) and anchor_id != "", "anchor_id must be a non-empty string"
     assert is_binary(room_id), "room_id must be a string"
     assert room_id != "", "room_id must not be empty"
     assert room_id != "0", "room_id must not be '0'"
@@ -61,7 +62,7 @@ defmodule PirateTok.ApiIntegrationTest do
 
     clean = String.trim(user)
 
-    {:ok, room_id} = PirateTok.Live.check_online(clean, timeout: @http_timeout)
+    {:ok, %{room_id: room_id}} = PirateTok.Live.check_online(clean, timeout: @http_timeout)
 
     cookies_opt =
       case System.get_env("PIRATETOK_LIVE_TEST_COOKIES") do

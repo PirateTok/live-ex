@@ -21,6 +21,7 @@ erl_crash.dump
 
 # Ignore package tarball (built via "mix hex.build").
 live_ex-*.tar
+piratetok_live-*.tar
 
 release.sh
 .env

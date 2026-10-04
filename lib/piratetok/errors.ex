@@ -14,6 +14,16 @@ defmodule PirateTok.Live.Error do
   @spec age_restricted(String.t()) :: t()
   def age_restricted(msg), do: %__MODULE__{type: :age_restricted, message: "age-restricted stream: #{msg}"}
 
+  @spec api_error(integer()) :: t()
+  def api_error(code), do: %__MODULE__{type: :api_error, message: "tiktok api error: statusCode=#{code}"}
+
+  @spec tiktok_blocked(integer(), String.t()) :: t()
+  def tiktok_blocked(status, detail),
+    do: %__MODULE__{type: :tiktok_blocked, message: "tiktok blocked request: HTTP #{status} (#{detail})"}
+
+  @spec session_required(String.t()) :: t()
+  def session_required(msg), do: %__MODULE__{type: :session_required, message: "session required: #{msg}"}
+
   @spec tiktok_blocked(integer()) :: t()
   def tiktok_blocked(status), do: %__MODULE__{type: :tiktok_blocked, message: "tiktok blocked request: HTTP #{status}"}
 

@@ -74,7 +74,7 @@ Requires Elixir >= 1.15.
   timeout: 15_000,           # HTTP timeout in ms (default 10_000)
   heartbeat_interval: 10_000, # ms between heartbeats (default 10_000)
   stale_timeout: 90_000,     # reconnect after N ms of silence (default 60_000)
-  max_retries: 10,           # reconnect attempts (default 5)
+  max_retries: 10,           # consecutive failed reconnects before giving up (default 5)
   proxy: "socks5://host:port", # proxy URL (HTTP/HTTPS/SOCKS5)
   compress: false,           # disable gzip compression for WSS payloads (default true)
   user_agent: "Mozilla/...", # override random UA rotation with a fixed user-agent
@@ -87,8 +87,8 @@ Requires Elixir >= 1.15.
 ## Room info (optional, separate call)
 
 ```elixir
-# Check if user is live
-{:ok, room_id} = PirateTok.Live.check_online("username_here")
+# Check if user is live -- anchor_id is the streamer's user id
+{:ok, %{room_id: room_id, anchor_id: anchor_id}} = PirateTok.Live.check_online("username_here")
 
 # Fetch room metadata (title, viewers, stream URLs)
 {:ok, info} = PirateTok.Live.fetch_room_info(room_id)
@@ -98,13 +98,36 @@ Requires Elixir >= 1.15.
   cookies: "sessionid=abc; sid_tt=abc")
 ```
 
+`check_online/2` errors: `:user_not_found`, `:host_not_online`, `:api_error` (statusCode in the message), `:tiktok_blocked` (HTTP 403/429, empty or non-JSON body).
+
+## Top viewers (WSS, no cookies)
+
+```elixir
+{:tiktok_live, :room_user_seq, seq} ->
+  for c <- PirateTok.Live.top_viewers(seq), do: IO.puts("#{c.rank} #{c.user.nickname} #{c.score}")
+```
+
+`:room_user_seq` carries `viewer_count`, `total_user`, `anonymous`, `pop_str`, `ranks_list`, `seats_list`.
+
+## Audience roster (optional, login-gated)
+
+The full viewer list behind the web viewer panel. Session cookies are **required for this call only** -- without them you get an error of type `:session_required`.
+
+```elixir
+{:ok, aud} = PirateTok.Live.fetch_room_audience(room_id, anchor_id,
+  cookies: "sessionid=abc; sid_tt=abc")
+# aud.total, aud.anonymous, aud.viewers (rank, score, user_id, username, nickname, ...)
+```
+
+Pass `nil` as `anchor_id` to resolve it via room info (one extra request).
+
 ## How it works
 
 1. Resolves username to room ID via TikTok JSON API
 2. Authenticates and opens a direct WSS connection
 3. Sends protobuf heartbeats every 10s to keep alive
 4. Decodes protobuf event stream into Elixir structs
-5. Auto-reconnects on stale/dropped connections with fresh credentials
+5. Auto-reconnects on stale/dropped connections, reusing the ttwid + UA (ttwid fetch retried up to 8x, 750 ms apart); rotates them only on DEVICE_BLOCKED or a session that died within 30 s. A session that stayed up 30 s resets the retry counter
 
 All protobuf schemas are defined via `use Protobuf` field declarations -- no `.proto` files, no codegen.
 
@@ -117,6 +140,7 @@ mix run examples/stream_info.exs <username>      # fetch room metadata + stream 
 mix run examples/gift_tracker.exs <username>     # track gifts with diamond totals
 mix run examples/gift_streak.exs <username>      # gift streak tracker with per-event deltas
 mix run examples/profile_lookup.exs [username]   # fetch profile metadata + avatars
+mix run examples/audience.exs <username> <cookies> # full viewer roster (session cookies required)
 ```
 
 ## Replay testing
@@ -124,11 +148,13 @@ mix run examples/profile_lookup.exs [username]   # fetch profile metadata + avat
 Deterministic cross-lib validation against binary WSS captures. Requires testdata from a separate repo:
 
 ```bash
-git clone https://github.com/PirateTok/live-testdata testdata
+git clone https://github.com/PirateTok/live-testdata ../live-testdata
 mix test
 ```
 
-Tests skip gracefully if testdata is not found. You can also set `PIRATETOK_TESTDATA` to point to a custom location.
+Missing testdata is a test failure, not a skip. Lookup order: `$PIRATETOK_TESTDATA`, `testdata/`, `../live-testdata/` (manifests in `manifests/` or `captures/manifests/`). The `_raw` captures are not in live-testdata -- supply them via `testdata/` or `PIRATETOK_TESTDATA`.
+
+`mix test` also runs `test/pirate_tok/parity_test.exs` -- offline tests for ttwid retry (local fake HTTP responder), reconnect policy, `ranks_list`/`top_viewers`, audience parsing, gift helpers and `check_online` error mapping.
 
 ## License
 

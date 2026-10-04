@@ -22,7 +22,7 @@ defmodule PirateTok.Live.Client do
   require Logger
 
   alias PirateTok.Live.Auth.Ttwid
-  alias PirateTok.Live.Connection.{Url, Wss}
+  alias PirateTok.Live.Connection.{Reconnect, Url, Wss}
   alias PirateTok.Live.Error
   alias PirateTok.Live.Http.{Api, UA}
 
@@ -42,7 +42,12 @@ defmodule PirateTok.Live.Client do
     language: nil,
     region: nil,
     compress: true,
-    attempt: 0
+    attempt: 0,
+    # {ttwid, user_agent} held across reconnects; nil = fetch fresh
+    session: nil,
+    attempt_started_at: nil,
+    # internal: extra opts for the ttwid fetch (tests point :url at a fake)
+    ttwid_opts: []
   ]
 
   # -- public API --
@@ -72,7 +77,8 @@ defmodule PirateTok.Live.Client do
       proxy: Keyword.get(opts, :proxy),
       language: Keyword.get(opts, :language),
       region: Keyword.get(opts, :region),
-      compress: Keyword.get(opts, :compress, true)
+      compress: Keyword.get(opts, :compress, true),
+      ttwid_opts: Keyword.get(opts, :ttwid_opts, [])
     }
 
     send(self(), :resolve_and_connect)
@@ -86,7 +92,7 @@ defmodule PirateTok.Live.Client do
     http_opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy)
 
     case Api.check_online(state.username, http_opts) do
-      {:ok, room_id} ->
+      {:ok, %{room_id: room_id}} ->
         Logger.info("resolved #{state.username} -> room #{room_id}")
         send_event(state.caller, :connected, %{room_id: room_id})
         state = %{state | room_id: room_id}
@@ -100,17 +106,14 @@ defmodule PirateTok.Live.Client do
   end
 
   def handle_info(:connect_ws, state) do
-    ua = state.user_agent || UA.random_ua()
-
-    ttwid_opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy)
-
-    case Ttwid.fetch(ttwid_opts) do
-      {:ok, ttwid} ->
+    case ensure_session(state) do
+      {:ok, {ttwid, ua} = session} ->
+        state = %{state | session: session}
         tz = UA.system_timezone()
         lang = state.language || UA.system_language()
         region = state.region || UA.system_region()
         cdn_host = Url.cdn_host(state.cdn)
-        ws_url = Url.build(cdn_host, state.room_id, tz, lang, region, state.compress)
+        ws_url = Url.build(cdn_host, state.room_id, tz, lang, region, state.compress, state.heartbeat_interval)
 
         ws_cookie =
           case state.cookies do
@@ -138,12 +141,12 @@ defmodule PirateTok.Live.Client do
             Wss.connect(ws_url, ws_cookie, ua, state.room_id, ws_opts)
           end)
 
-        {:noreply, %{state | ws_task: task}}
+        {:noreply, %{state | ws_task: task, attempt_started_at: now_ms()}}
 
       {:error, err} ->
-        Logger.error("ttwid fetch failed: #{err.message}")
-        send_event(state.caller, :error, err)
-        {:stop, :normal, state}
+        # a ttwid failure is a failed attempt, never an abort
+        Logger.warning("ttwid acquisition failed: #{err.message}")
+        attempt_ended(:failed, %{state | session: nil})
     end
   end
 
@@ -166,36 +169,52 @@ defmodule PirateTok.Live.Client do
   def handle_info(_msg, state), do: {:noreply, state}
 
   defp handle_ws_result(result, state) do
-    is_device_blocked =
-      case result do
-        {:error, %Error{type: :device_blocked}} -> true
-        _ -> false
-      end
+    elapsed = now_ms() - (state.attempt_started_at || now_ms())
+    outcome = Reconnect.classify(result, elapsed)
 
-    if is_device_blocked do
+    if outcome == :blocked do
       Logger.warning("DEVICE_BLOCKED — rotating ttwid + UA")
     end
 
-    attempt = state.attempt + 1
+    attempt_ended(outcome, %{state | ws_task: nil, attempt_started_at: nil})
+  end
 
-    if attempt > state.max_retries do
-      Logger.info("max retries (#{state.max_retries}) exceeded")
-      send_event(state.caller, :disconnected, nil)
-      {:stop, :normal, %{state | attempt: attempt}}
-    else
-      delay_ms = if is_device_blocked, do: 2_000, else: min(1_000 * round(:math.pow(2, attempt)), 30_000)
+  defp attempt_ended(outcome, state) do
+    case Reconnect.decide(state.attempt, outcome, state.max_retries) do
+      :give_up ->
+        Logger.info("max retries (#{state.max_retries}) exceeded")
+        send_event(state.caller, :disconnected, nil)
+        {:stop, :normal, %{state | attempt: state.attempt + 1}}
 
-      send_event(state.caller, :reconnecting, %{
-        attempt: attempt,
-        max_retries: state.max_retries,
-        delay_secs: div(delay_ms, 1000)
-      })
+      {:retry, attempt, delay_ms, keep_session?} ->
+        send_event(state.caller, :reconnecting, %{
+          attempt: attempt,
+          max_retries: state.max_retries,
+          delay_secs: div(delay_ms, 1000),
+          device_blocked: outcome == :blocked
+        })
 
-      Logger.info("reconnecting in #{div(delay_ms, 1000)}s (attempt #{attempt}/#{state.max_retries})")
-      Process.send_after(self(), :reconnect, delay_ms)
-      {:noreply, %{state | attempt: attempt, ws_task: nil}}
+        Logger.info("reconnecting in #{div(delay_ms, 1000)}s (attempt #{attempt}/#{state.max_retries})")
+        Process.send_after(self(), :reconnect, delay_ms)
+        session = if keep_session?, do: state.session, else: nil
+        {:noreply, %{state | attempt: attempt, session: session}}
     end
   end
+
+  # ttwid + UA: reuse the held session, else fetch fresh (bounded retry).
+  defp ensure_session(%{session: {_, _} = session}), do: {:ok, session}
+
+  defp ensure_session(state) do
+    ua = state.user_agent || UA.random_ua()
+    opts = [user_agent: ua, timeout: state.timeout] ++ proxy_opt(state.proxy) ++ state.ttwid_opts
+
+    case Ttwid.fetch_retrying(opts) do
+      {:ok, ttwid} -> {:ok, {ttwid, ua}}
+      {:error, _} = err -> err
+    end
+  end
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
 
   defp send_event(caller, type, data) do
     send(caller, {:tiktok_live, type, data})

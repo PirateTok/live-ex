@@ -38,6 +38,20 @@ defmodule PirateTok.Live.Proto.WebcastGiftMessage do
   field :gift_details, 15, type: PirateTok.Live.Proto.GiftDetails
   field :is_first_sent, 25, type: :bool
   field :user_identity, 32, type: PirateTok.Live.Proto.UserIdentityContext
+
+  @doc "Combo-able gift (gift_type 1): streak events arrive until repeat_end."
+  @spec is_combo_gift(t()) :: boolean()
+  def is_combo_gift(%__MODULE__{gift_details: %{gift_type: 1}}), do: true
+  def is_combo_gift(%__MODULE__{}), do: false
+
+  @doc "True when the streak is over (non-combo gifts are always final)."
+  @spec is_streak_over(t()) :: boolean()
+  def is_streak_over(%__MODULE__{repeat_end: repeat_end} = gift), do: not is_combo_gift(gift) or repeat_end == 1
+
+  @doc "diamond_count × max(repeat_count, 1)."
+  @spec diamond_total(t()) :: non_neg_integer()
+  def diamond_total(%__MODULE__{gift_details: nil}), do: 0
+  def diamond_total(%__MODULE__{gift_details: details, repeat_count: count}), do: details.diamond_count * max(count, 1)
 end
 
 defmodule PirateTok.Live.Proto.WebcastLikeMessage do
@@ -74,14 +88,39 @@ defmodule PirateTok.Live.Proto.WebcastSocialMessage do
   field :share_count, 8, type: :int32
 end
 
+defmodule PirateTok.Live.Proto.Contributor do
+  @moduledoc false
+  use Protobuf, protoc_gen_elixir_version: "0.13.0", syntax: :proto3
+
+  field :score, 1, type: :int64
+  field :user, 2, type: PirateTok.Live.Proto.UserIdentity
+  field :rank, 3, type: :int64
+  field :delta, 4, type: :int64
+end
+
 defmodule PirateTok.Live.Proto.WebcastRoomUserSeqMessage do
   @moduledoc false
   use Protobuf, protoc_gen_elixir_version: "0.13.0", syntax: :proto3
 
   field :common, 1, type: PirateTok.Live.Proto.CommonMessageData
-  field :viewer_count, 3, type: :int32
+  field :ranks_list, 2, repeated: true, type: PirateTok.Live.Proto.Contributor
+  field :viewer_count, 3, type: :int64
+  field :pop_str, 4, type: :string
+  field :seats_list, 5, repeated: true, type: PirateTok.Live.Proto.Contributor
   field :popularity, 6, type: :int64
-  field :total_user, 7, type: :int32
+  field :total_user, 7, type: :int64
+  field :anonymous, 8, type: :int64
+
+  @doc """
+  The top-viewers box next to the viewer counter. Entries without a decoded
+  user are skipped; the rest come back sorted by rank ascending.
+  """
+  @spec top_viewers(t()) :: [PirateTok.Live.Proto.Contributor.t()]
+  def top_viewers(%__MODULE__{ranks_list: ranks}) do
+    ranks
+    |> Enum.reject(&is_nil(&1.user))
+    |> Enum.sort_by(& &1.rank)
+  end
 end
 
 defmodule PirateTok.Live.Proto.WebcastControlMessage do
